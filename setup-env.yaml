@@ -1,0 +1,39 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+
+metadata:
+  name: setup-env
+
+spec:
+  description: >-
+    This is the task for setting up the environment and prerequisites for CRDA CLI. 
+    Dependencies present in the given manifest file will be installed in the configured target directory.
+    
+    This task accepts following parameters
+    - site-pkg:- Target directory for installing dependencies.
+    - work-dir:- Project directory having manifest file.
+    - manifest:- Name of the manifest file.
+    - image:- CRDA image name and tag.
+
+  # Task parameters take values from global parameters  
+  params:
+    - name: site-pkg
+      default: $(params.site-pkg)
+    - name: work-dir
+      default: $(params.work-dir)
+    - name: manifest
+      default: $(params.manifest)
+    - name: image
+      default: $(params.image)
+
+  # Task definition
+  steps:
+    - name: setup-env
+      image: $(params.image)
+      command: ['/bin/bash', '-c']
+      args:
+        - mkdir -p $(params.site-pkg) && pip3 install --target=$(params.site-pkg) -r $(params.work-dir)/$(params.manifest) --upgrade
+  
+  # Task workspace take values from global workspace
+  workspaces:
+    - name: output

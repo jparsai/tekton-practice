@@ -1,0 +1,165 @@
+# Steps to run pipeline
+#   - Install/start Minikube and Tekton, also run dashboards for both services to have a better experience.
+#   - Create namespace.
+#   - Create and attach PVC to your namespace  
+#   - Install all required tasks into your name space:
+#     - Install pre built git-clone task from Tekton Hub (https://hub-preview.tekton.dev/detail/34)
+#     - Configure setup-env and crda-report tasks into your namespace
+#     - Configure crda-pipeline 
+#   - Run pipeline
+#
+# Some useful commands
+#   - Create Install tekton and create 'tekton-pipelines' namespace
+#       $kubectl apply -f https://storage.googleapis.com/tekton-releases/pipeline/previous/v0.16.3/release.yaml
+#   - Configure component into Tekton like Pipeline, Task, PVC etc
+#       $kubectl apply -f <Path_or_URL_to_component_YAML> -n <Namespace>
+#   - Run task
+#       $tkn task start --showlog -n <Namespace> <Task_Name>
+#   - Run pipeline
+#       $tkn pipeline start --showlog -n <Namespace> <Pipiline_Name>
+#   - Get task logs
+#       $tkn taskrun logs <Task_ID> -f -n <Namespace>
+#   - Get pipeline logs
+#       $tkn pipelinerun logs <Pipeline_ID> -f -n <Namespace>
+#   - See task description
+#       $tkn task describe -n tekton-pipelines git-clone
+#   - See pipeline description
+#       $tkn pipeline describe -n tekton-pipelines crda-pipeline
+#       
+##########################################################################################
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: crda-pipeline
+
+spec:
+  description: >-
+    This pipeline is created to check for vulnerabilities in given Github repo using CRDA CLI tool.
+
+    It consists of three tasks: 
+    - git-clone:- Clone given Github repo and revision.
+    - setup-env:- Install dependencies present is manifest file.
+    - crda-report:- Get vulnerability report using CRDA CLI.
+    Detailed description is available in task definition
+
+  # Global workspace
+  workspaces:
+    - name: output
+
+  # Global Parameters for tasks.
+  params:
+    - name: Git_URL
+      description: Git url to clone
+    
+    - name: Git_revision
+      description: Git revision to checkout (branch, tag, sha, ref…).
+      default: master
+    
+    - name: SSL_verify
+      description: Defines if http.sslVerify should be set to true or false in the global git config.
+      default: "false"
+    
+    - name: Sub_directory
+      description: Subdirectory inside the "output" workspace to clone the git repo into.
+      default: src
+
+    - name: Delete_existing
+      description: Clean out the contents of the repo's destination directory (if it already exists) before trying to clone the repo there.
+      default: "true"
+
+    - name: Site_pkg
+      description: Target directory of Python packages witin workspace.
+      default: crda-site-package
+
+    - name: Manifest
+      description: Name of the manifest file for vulnerability scan. 
+      default: requirements.txt
+    
+    - name: Image
+      description: CRDA CLI image name and tag
+      default: quay.io/jparsai/crdaimagev1:latest
+
+#############################################
+  # Declare all pipeline steps
+  tasks:
+    # Task start
+    - name: git-clone
+
+      # Task is defined in respective YAML
+      taskRef:
+        name: git-clone
+
+      # Task workspace take values from global workspace
+      workspaces:
+        - name: output
+          workspace: output
+
+      # Task parameters take values from global parameters  
+      params:
+        - name: url
+          value: $(params.Git_URL)
+        - name: revision
+          value: $(params.Git_revision)
+        - name: sslVerify
+          value: $(params.SSL_verify)
+        - name: subdirectory
+          value: $(params.Sub_directory)
+        - name: deleteExisting
+          value: $(params.Delete_existing)
+    # Task end
+
+    #############################################
+    # Task start
+    - name: setup-env
+
+      # Task is defined in respective YAML
+      taskRef:
+        name: setup-env
+
+      runAfter:
+        - git-clone
+
+      # Task workspace take values from global workspace
+      workspaces:
+        - name: output
+          workspace: output
+
+      # Task parameters take values from global parameters  
+      params:
+        - name: site-pkg
+          value: $(workspaces.output.path)/$(params.Site_pkg)
+        - name: work-dir
+          value: $(workspaces.output.path)/$(params.Sub_directory)
+        - name: manifest
+          value: $(params.Manifest)
+        - name: image
+          value: $(params.Image)
+    # Task end
+
+    #############################################
+    # Task start
+    - name: crda-report
+
+      # Task is defined in respective YAML
+      taskRef:
+        name: crda-report
+
+      runAfter:
+        - setup-env
+
+      # Task workspace take values from global workspace
+      workspaces:
+        - name: output
+          workspace: output
+
+      # Task parameters take values from global parameters  
+      params:
+        - name: site-pkg
+          value: $(workspaces.output.path)/$(params.Site_pkg)
+        - name: work-dir
+          value: $(workspaces.output.path)/$(params.Sub_directory)
+        - name: manifest
+          value: $(params.Manifest)
+        - name: image
+          value: $(params.Image)
+    # Task end
